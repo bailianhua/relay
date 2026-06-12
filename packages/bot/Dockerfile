@@ -5,7 +5,7 @@ FROM base AS deps
 WORKDIR /app
 COPY package.json pnpm-workspace.yaml* ./
 COPY packages/bot/package.json ./packages/bot/
-RUN pnpm install --filter bot --frozen-lockfile
+RUN pnpm install --filter bot
 
 FROM base AS build
 WORKDIR /app

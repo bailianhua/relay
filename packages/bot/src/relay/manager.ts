@@ -4,15 +4,13 @@ import {
   createAudioResource,
   VoiceConnectionStatus,
   entersState,
-  VoiceReceiver,
-  AudioPlayerStatus,
   StreamType,
-  getVoiceConnection,
   EndBehaviorType,
   AudioPlayer,
   VoiceConnection,
+  type DiscordGatewayAdapterCreator,
 } from "@discordjs/voice";
-import { client } from "../index.js";
+import type { Client, Guild } from "discord.js";
 import { PassThrough, Readable } from "stream";
 import type { RelaySession } from "../types.js";
 import { randomUUID } from "crypto";
@@ -25,35 +23,49 @@ interface ActiveRelay {
   fanout: Set<PassThrough>;
 }
 
+async function resolveGuild(client: Client, guildId: string): Promise<Guild> {
+  const cached = client.guilds.cache.get(guildId);
+  if (cached) return cached;
+  return client.guilds.fetch(guildId);
+}
+
 class RelayManager {
   private relays = new Map<string, ActiveRelay>();
 
   async create(opts: {
+    client: Client;
     guildId: string;
     sourceChannelId: string;
     shotcallerUserId: string;
   }): Promise<RelaySession> {
     await this.stop(opts.guildId);
 
-    const guild = client.guilds.cache.get(opts.guildId);
-    if (!guild) throw new Error("Guild not found");
+    const guild = await resolveGuild(opts.client, opts.guildId);
+    const channel = await guild.channels.fetch(opts.sourceChannelId).catch((err) => {
+      console.error("Channel fetch error:", err);
+      return null;
+    });
+    if (!channel || !channel.isVoiceBased()) throw new Error("Channel not found or not a voice channel");
 
-    const channel = guild.channels.cache.get(opts.sourceChannelId);
-    if (!channel || !channel.isVoiceBased()) throw new Error("Channel not found");
+    console.log(`[relay] guild=${guild.id} shard=${guild.shardId} shardStatus=${guild.shard?.status}`);
 
     const sourceConnection = joinVoiceChannel({
       channelId: opts.sourceChannelId,
-      guildId: opts.guildId,
-      adapterCreator: guild.voiceAdapterCreator,
+      guildId: guild.id,
+      adapterCreator: guild.voiceAdapterCreator as unknown as DiscordGatewayAdapterCreator,
       selfDeaf: false,
       selfMute: true,
+    });
+
+    sourceConnection.on("stateChange", (oldState, newState) => {
+      console.log(`[voice] ${oldState.status} -> ${newState.status}`);
     });
 
     await entersState(sourceConnection, VoiceConnectionStatus.Ready, 10_000);
 
     const session: RelaySession = {
       id: randomUUID(),
-      guildId: opts.guildId,
+      guildId: guild.id,
       sourceChannelId: opts.sourceChannelId,
       targetChannelIds: [],
       shotcallerUserId: opts.shotcallerUserId,
@@ -68,7 +80,7 @@ class RelayManager {
       fanout: new Set(),
     };
 
-    this.relays.set(opts.guildId, relay);
+    this.relays.set(guild.id, relay);
     this.startListening(relay);
     return session;
   }
@@ -96,7 +108,7 @@ class RelayManager {
   private fanAudioToTargets(relay: ActiveRelay, source: Readable) {
     const pipes: PassThrough[] = [];
 
-    for (const [channelId, player] of relay.targetPlayers) {
+    for (const [, player] of relay.targetPlayers) {
       const pt = new PassThrough();
       relay.fanout.add(pt);
       pipes.push(pt);
@@ -107,7 +119,6 @@ class RelayManager {
       });
 
       player.play(resource);
-
       pt.on("close", () => relay.fanout.delete(pt));
     }
 
@@ -131,19 +142,18 @@ class RelayManager {
     });
   }
 
-  async addTarget(guildId: string, channelId: string): Promise<boolean> {
+  async addTarget(client: Client, guildId: string, channelId: string): Promise<boolean> {
     const relay = this.relays.get(guildId);
     if (!relay) return false;
 
     if (relay.targetConnections.has(channelId)) return true;
 
-    const guild = client.guilds.cache.get(guildId);
-    if (!guild) return false;
+    const guild = await resolveGuild(client, guildId);
 
     const connection = joinVoiceChannel({
       channelId,
-      guildId,
-      adapterCreator: guild.voiceAdapterCreator,
+      guildId: guild.id,
+      adapterCreator: guild.voiceAdapterCreator as unknown as DiscordGatewayAdapterCreator,
       selfDeaf: true,
       selfMute: false,
     });

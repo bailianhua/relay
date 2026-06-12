@@ -3,15 +3,20 @@ import { fetch } from "undici";
 import { db } from "../db/schema.js";
 
 const DISCORD_API = "https://discord.com/api/v10";
-const CLIENT_ID = process.env.DISCORD_CLIENT_ID!;
-const CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET!;
-const REDIRECT_URI = process.env.REDIRECT_URI ?? "http://localhost:5173/auth/callback";
+
+function cfg() {
+  return {
+    CLIENT_ID: process.env.DISCORD_CLIENT_ID!,
+    CLIENT_SECRET: process.env.DISCORD_CLIENT_SECRET!,
+    REDIRECT_URI: process.env.REDIRECT_URI ?? "http://localhost:5173/auth/callback",
+  };
+}
 
 export async function authRoutes(app: FastifyInstance) {
   app.get("/auth/discord", async (req, reply) => {
     const params = new URLSearchParams({
-      client_id: CLIENT_ID,
-      redirect_uri: REDIRECT_URI,
+      client_id: cfg().CLIENT_ID,
+      redirect_uri: cfg().REDIRECT_URI,
       response_type: "code",
       scope: "identify guilds",
     });
@@ -20,22 +25,24 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.get<{ Querystring: { code: string } }>("/auth/callback", async (req, reply) => {
     const { code } = req.query;
-    if (!code) return reply.status(400).send({ error: "Missing code" });
+    const webOrigin = process.env.WEB_ORIGIN ?? "http://localhost:5173";
+
+    if (!code) return reply.redirect(`${webOrigin}/?error=missing_code`);
 
     const tokenRes = await fetch(`${DISCORD_API}/oauth2/token`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        client_id: CLIENT_ID,
-        client_secret: CLIENT_SECRET,
+        client_id: cfg().CLIENT_ID,
+        client_secret: cfg().CLIENT_SECRET,
         grant_type: "authorization_code",
         code,
-        redirect_uri: REDIRECT_URI,
+        redirect_uri: cfg().REDIRECT_URI,
       }),
     });
 
     if (!tokenRes.ok) {
-      return reply.status(401).send({ error: "Token exchange failed" });
+      return reply.redirect(`${webOrigin}/?error=token_exchange_failed`);
     }
 
     const tokens = (await tokenRes.json()) as {
@@ -68,12 +75,12 @@ export async function authRoutes(app: FastifyInstance) {
       Math.floor(Date.now() / 1000) + tokens.expires_in
     );
 
-    (req.session as Record<string, unknown>).userId = user.id;
-    reply.send({ ok: true, user: { id: user.id, username: user.username, avatar: user.avatar } });
+    (req.session as unknown as Record<string, unknown>).userId = user.id;
+    return reply.redirect(`${webOrigin}/dashboard`);
   });
 
   app.get("/auth/me", async (req, reply) => {
-    const userId = (req.session as Record<string, unknown>).userId as string | undefined;
+    const userId = (req.session as unknown as Record<string, unknown>).userId as string | undefined;
     if (!userId) return reply.status(401).send({ error: "Not authenticated" });
 
     const user = db.prepare("SELECT id, username, avatar FROM users WHERE id = ?").get(userId);

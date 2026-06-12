@@ -1,10 +1,17 @@
+import { useEffect, useState } from "react";
 import { useAuth } from "../hooks/useAuth.js";
+import { api, type BotInvite } from "../lib/api.js";
 
 export function LoginPage() {
   const { login } = useAuth();
+  const [botInvites, setBotInvites] = useState<BotInvite[]>([]);
+
+  useEffect(() => {
+    api.botInvites().then(setBotInvites).catch(() => setBotInvites([]));
+  }, []);
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-8 px-4">
+    <div className="mx-auto flex min-h-screen w-full max-w-5xl flex-col items-center justify-center gap-8 px-4 py-10">
       <div className="text-center">
         <h1 className="text-4xl font-bold text-white">Relay</h1>
         <p className="mt-2 text-gray-400">Voice broadcast for Discord guilds</p>
@@ -21,6 +28,26 @@ export function LoginPage() {
       <p className="text-sm text-gray-600">
         The bot must already be in your server before connecting.
       </p>
+      {botInvites.length > 0 && (
+        <section className="w-full max-w-3xl">
+          <h2 className="mb-3 text-center text-sm font-semibold uppercase tracking-wide text-gray-500">
+            Invite bots
+          </h2>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {botInvites.map((bot) => (
+              <a
+                key={`${bot.label}-${bot.clientId}`}
+                href={bot.url}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-lg border border-gray-800 bg-gray-900 px-4 py-3 text-center text-sm font-medium text-gray-100 transition hover:border-brand-500 hover:bg-gray-800"
+              >
+                {bot.label}
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

@@ -1,4 +1,8 @@
-import "dotenv/config";
+import { config } from "dotenv";
+import { dirname, resolve } from "path";
+import { fileURLToPath } from "url";
+
+config({ path: resolve(dirname(fileURLToPath(import.meta.url)), "../../../.env") });
 import { Client, GatewayIntentBits, Collection } from "discord.js";
 import { loadCommands } from "./commands/loader.js";
 import { registerEvents } from "./events/index.js";
@@ -8,8 +12,6 @@ export const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildVoiceStates,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
   ],
 });
 
