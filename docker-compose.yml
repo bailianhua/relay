@@ -1,0 +1,34 @@
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: packages/bot/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - api
+
+  api:
+    build:
+      context: .
+      dockerfile: packages/api/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./data:/app/data
+
+  web:
+    build:
+      context: .
+      dockerfile: packages/web/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+
+volumes: {}
